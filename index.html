@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#07111f">
+<title>TIVA Companion — Manual Infusion Calculator</title>
+<style>
+:root{color-scheme:dark;--bg:#07111f;--panel:#111d2b;--line:#2c4055;--text:#edf4fb;--muted:#a8bacd;--mint:#b9f4df;--warn:#382a18;--warnline:#795b32}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:850px;margin:auto;padding:20px 14px 40px}.header{display:flex;align-items:center;gap:12px;margin:4px 0 20px}.logo{width:46px;height:46px;border-radius:13px;background:var(--mint);color:#062b24;display:grid;place-items:center;font-size:25px;font-weight:900}.muted,.small{color:var(--muted)}.muted{font-size:13px}.small{font-size:12px}.panel,.drug{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;margin:14px 0}.warning{background:var(--warn);border:1px solid var(--warnline);border-radius:12px;padding:13px;font-size:13px;margin:14px 0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.field label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}.field input,.field select{width:100%;min-width:0;padding:11px;border:1px solid #40546a;border-radius:9px;background:#081421;color:var(--text);font:inherit}.btn{padding:10px 13px;border:1px solid #40546a;border-radius:10px;background:#132235;color:var(--text);font-weight:650;cursor:pointer}.primary{background:var(--mint);border-color:var(--mint);color:#062b24}.remove{color:#ffb5b5}.sectionhead{display:flex;justify-content:space-between;align-items:center;gap:12px}.drugtop{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px}.result{margin-top:14px;background:#092b29;border:1px solid #246b5b;border-radius:12px;padding:14px}.rate{font-size:30px;font-weight:800;overflow-wrap:anywhere}.formula{font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin-top:10px}.status{font-size:12px;margin-top:8px}.checks label{display:flex;align-items:flex-start;gap:9px;margin:12px 0;font-size:14px}.checks input{margin-top:5px}.empty{color:var(--muted);font-size:14px;padding:12px}.footer{font-size:12px;color:var(--muted);margin-top:22px}
+@media(max-width:520px){main{padding:14px 10px 30px}.grid{gap:10px}.panel,.drug{padding:13px}.rate{font-size:26px}.btn{padding:9px 10px}}
+</style>
+</head>
+<body>
+<main>
+  <header class="header"><div class="logo">T</div><div><h1 style="font-size:22px;line-height:1.2;margin:0">TIVA Companion</h1><div class="muted">Manual infusion · dose-to-rate calculator</div></div></header>
+  <div class="warning"><strong>Clinical safety:</strong> Unvalidated prototype, not a prescribing tool. It calculates a rate only from the values you enter and does not recommend a dose. Independently verify the prescription, patient weight, drug, final concentration, units, pump settings and local protocol before administration.</div>
+  <section class="panel">
+    <h2 style="font-size:17px;margin:0 0 13px">01 / Patient details</h2>
+    <div class="grid">
+      <div class="field"><label for="weight">Weight (kg)</label><input id="weight" type="number" min="0.1" max="500" step="0.1" placeholder="Enter weight"></div>
+      <div class="field"><label for="case">Case label (optional)</label><input id="case" type="text" maxlength="40" placeholder="e.g. OT 2"></div>
+    </div>
+    <p class="small">Use the weight appropriate to the selected drug and your institutional dosing protocol.</p>
+  </section>
+  <section>
+    <div class="sectionhead"><div><h2 style="font-size:17px;margin:0">02 / Maintenance infusions</h2><div class="muted">Enter the prescribed dose and actual final concentration.</div></div><button id="add" class="btn primary">＋ Add drug</button></div>
+    <div id="drugs"></div><div id="empty" class="empty" hidden>No infusions added.</div>
+  </section>
+  <section class="panel">
+    <h2 style="font-size:17px;margin:0 0 8px">03 / Calculation method</h2>
+    <p class="muted">Weight-based doses are multiplied by the entered weight. Minute-based doses are converted to an hourly amount. mg is converted to µg when needed, then the hourly drug amount is divided by concentration to produce mL/h.</p>
+    <p class="small">Weight-based: dose × weight, with unit/time conversion, ÷ concentration. Absolute dose: dose per hour, with unit/time conversion, ÷ concentration.</p>
+  </section>
+  <section class="panel checks">
+    <h2 style="font-size:17px;margin:0 0 8px">Before starting the infusion</h2>
+    <label><input type="checkbox"> Drug identity and prescribed maintenance dose independently checked.</label>
+    <label><input type="checkbox"> Final syringe concentration and units independently verified.</label>
+    <label><input type="checkbox"> Pump rate, line connection and patient monitoring checked.</label>
+    <div class="warning">These checks are reminders only. They do not validate the prescription or certify safe administration.</div>
+    <button id="reset" class="btn" style="width:100%">Reset verification checks</button>
+  </section>
+  <footer class="footer">This demonstration does not intentionally save or transmit patient information. Do not rely on it for patient care until its calculations, interface and clinical safeguards have been independently validated and formally tested.</footer>
+</main>
+<script>
+(function(){
+const profiles={
+ 'Propofol':{du:'mg/kg/h',cu:'mg/mL'},
+ 'Remifentanil':{du:'µg/kg/min',cu:'µg/mL'},
+ 'Dexmedetomidine':{du:'µg/kg/h',cu:'µg/mL'},
+ 'Ketamine':{du:'mg/kg/h',cu:'mg/mL'},
+ 'Fentanyl':{du:'µg/kg/h',cu:'µg/mL'},
+ 'Midazolam':{du:'mg/kg/h',cu:'mg/mL'},
+ 'Other mass-based drug':{du:'mg/kg/h',cu:'mg/mL'},
+ 'Custom mass-based drug':{du:'mg/kg/h',cu:'mg/mL'}
+};
+const doseUnits=['mg/kg/h','µg/kg/h','mg/kg/min','µg/kg/min','mg/h','µg/h'];
+const concUnits=['mg/mL','µg/mL'];
+const list=document.getElementById('drugs'),weight=document.getElementById('weight');
+let id=0;
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const options=(arr,val)=>arr.map(x=>`<option value="${esc(x)}" ${x===val?'selected':''}>${esc(x)}</option>`).join('');
+function fmt(n){return n.toLocaleString('en-IN',{maximumFractionDigits:3,minimumFractionDigits:0})}
+function addDrug(name='Propofol'){
+ const n=++id,p=profiles[name]||profiles['Other mass-based drug'],card=document.createElement('article');
+ card.className='drug';card.innerHTML=`
+ <div class="drugtop"><strong>Infusion ${n}</strong><button type="button" class="btn remove">Remove</button></div>
+ <div class="grid">
+  <div class="field"><label>Drug</label><select class="name">${options(Object.keys(profiles),name)}</select></div>
+  <div class="field"><label>Prescribed dose</label><input class="dose" type="number" min="0" step="any" placeholder="Enter dose"></div>
+  <div class="field"><label>Dose units</label><select class="du">${options(doseUnits,p.du)}</select></div>
+  <div class="field"><label>Final concentration</label><input class="conc" type="number" min="0" step="any" placeholder="Enter concentration"></div>
+  <div class="field"><label>Concentration units</label><select class="cu">${options(concUnits,p.cu)}</select></div>
+  <div class="field"><label>Infusion type</label><input value="Continuous maintenance" disabled></div>
+ </div>
+ <div class="result" aria-live="polite"><div class="muted">Calculated pump rate</div><div class="rate">— <span style="font-size:15px;font-weight:500">mL/h</span></div><div class="muted details">Enter a prescribed dose and concentration.</div></div>
+ <div class="formula">Rate = hourly drug amount ÷ concentration.</div><div class="status muted" role="status">Awaiting complete inputs.</div>`;
+ list.appendChild(card);
+ card.querySelector('.remove').addEventListener('click',()=>{card.remove();emptyState()});
+ card.querySelector('.name').addEventListener('change',e=>{const pr=profiles[e.target.value]||profiles['Other mass-based drug'];card.querySelector('.du').value=pr.du;card.querySelector('.cu').value=pr.cu;calculate(card)});
+ card.querySelectorAll('input,select').forEach(el=>el.addEventListener('input',()=>calculate(card)));
+ calculate(card);emptyState();
+}
+function emptyState(){document.getElementById('empty').hidden=list.children.length>0}
+function calculate(card){
+ const doseField=card.querySelector('.dose'),concField=card.querySelector('.conc');
+ const dose=Number(doseField.value),conc=Number(concField.value),w=Number(weight.value);
+ const du=card.querySelector('.du').value,cu=card.querySelector('.cu').value;
+ const rateEl=card.querySelector('.rate'),details=card.querySelector('.details'),formula=card.querySelector('.formula'),status=card.querySelector('.status');
+ rateEl.innerHTML='— <span style="font-size:15px;font-weight:500">mL/h</span>';details.textContent='Enter a prescribed dose and final concentration.';formula.textContent='Rate = hourly drug amount ÷ concentration.';status.textContent='Awaiting complete inputs.';
+ if(!doseField.value||!concField.value||!Number.isFinite(dose)||!Number.isFinite(conc)||dose<=0||conc<=0){status.textContent='Dose and concentration must be greater than zero.';return}
+ const perKg=du.includes('/kg/');
+ if(perKg&&(!Number.isFinite(w)||w<=0)){status.textContent='Enter a valid patient weight for this weight-based dose.';return}
+ if(w>500){status.textContent='Weight exceeds the configured input limit. Verify the entry.';return}
+ const isMg=du.startsWith('mg'),perMin=du.endsWith('/min'),factor=isMg?1000:1;
+ const hourlyMicrograms=dose*factor*(perMin?60:1)*(perKg?w:1);
+ const concentrationMicrograms=conc*(cu==='mg/mL'?1000:1);
+ const rate=hourlyMicrograms/concentrationMicrograms;
+ if(!Number.isFinite(rate)||rate<=0||rate>10000){status.textContent='Result is invalid or outside the display range. Verify all inputs and units.';return}
+ rateEl.innerHTML=`${fmt(rate)} <span style="font-size:15px;font-weight:500">mL/h</span>`;
+ details.textContent=`Drug delivery: ${fmt(hourlyMicrograms/1000)} mg/h (${fmt(hourlyMicrograms)} µg/h).`;
+ formula.textContent=`(${dose} ${du}${perKg?' × '+w+' kg':''}${perMin?' × 60 min/h':''}${isMg?' × 1000 µg/mg':''}) ÷ (${conc} ${cu}${cu==='mg/mL'?' × 1000 µg/mg':''}) = ${fmt(rate)} mL/h`;
+ status.textContent='Mathematical result only — independently verify before use.';
+}
+weight.addEventListener('input',()=>list.querySelectorAll('.drug').forEach(calculate));
+document.getElementById('add').addEventListener('click',()=>addDrug());
+document.getElementById('reset').addEventListener('click',()=>document.querySelectorAll('.checks input[type=checkbox]').forEach(c=>c.checked=false));
+addDrug('Propofol');addDrug('Remifentanil');
+})();
+</script>
+</body>
+</html>
